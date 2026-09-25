@@ -1,0 +1,22 @@
+firewall:
+  mode: simulation # options: simulation, live
+
+thresholds:
+  port_scan_ports: 5
+  connection_rate: 20
+  failed_connections: 10
+  bandwidth_bytes_per_second: 1000000
+
+threat_score:
+  rule_weight: 0.6
+  ml_weight: 0.3
+  behavior_weight: 0.1
+
+actions:
+  low: allow
+  moderate: monitor
+  high: temporary_block
+  critical: block
+
+temporary_block:
+  default_duration_seconds: 300
