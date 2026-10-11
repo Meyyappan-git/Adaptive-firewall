@@ -4,11 +4,13 @@ from pydantic_settings import BaseSettings
 from typing import Dict, Any
 from pathlib import Path
 
+_db_dir = Path(__file__).parents[2] / 'data' / 'database'
+_db_dir.mkdir(parents=True, exist_ok=True)
+
 class Settings(BaseSettings):
     APP_NAME: str = "Adaptive Firewall"
     DEBUG: bool = True
-    # Use absolute path for database to avoid "unable to open database file" errors
-    DATABASE_URL: str = f"sqlite:///{Path(__file__).parents[2]/ 'data/database/firewall.db'}"
+    DATABASE_URL: str = f"sqlite:///{ (_db_dir / 'firewall.db').as_posix() }"
     CONFIG_PATH: str = f"{Path(__file__).parents[2]/ 'configs/firewall.yaml'}"
     firewall_config: Dict[str, Any] = {}
 

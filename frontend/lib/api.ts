@@ -5,7 +5,8 @@ import {
   FirewallRule,
   Alert,
   SimulationStatus,
-  SystemStatus
+  SystemStatus,
+  FirewallStatus
 } from './types';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -13,6 +14,11 @@ const API_BASE = 'http://localhost:8000/api';
 export const api = {
   async getHealth(): Promise<SystemStatus> {
     const res = await fetch(`${API_BASE}/health`);
+    return res.json();
+  },
+
+  async getSystemStatus(): Promise<SystemStatus> {
+    const res = await fetch(`${API_BASE}/system/status`);
     return res.json();
   },
 
@@ -56,11 +62,25 @@ export const api = {
     return res.json();
   },
 
-  async setSimulationScenario(scenario: string): Promise<{ status: string, scenario: string }> {
+  async setSimulationScenario(scenario: string): Promise<{ status: string; scenario: string }> {
     const res = await fetch(`${API_BASE}/simulation/scenario`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scenario }),
+    });
+    return res.json();
+  },
+
+  async getFirewallMode(): Promise<{ mode: string; firewall_status: FirewallStatus }> {
+    const res = await fetch(`${API_BASE}/firewall/mode`);
+    return res.json();
+  },
+
+  async setFirewallMode(mode: 'live' | 'simulation'): Promise<{ status: string; mode: string; firewall_status: FirewallStatus }> {
+    const res = await fetch(`${API_BASE}/firewall/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
     });
     return res.json();
   },

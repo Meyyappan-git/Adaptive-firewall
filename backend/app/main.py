@@ -1,19 +1,21 @@
 import asyncio
+import os
 import random
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Dict, Any
 
 from .database import get_db, init_db, TrafficEvent, Threat, FirewallRule, Alert, SessionLocal
 from .config import settings
-from .services.traffic_monitor import SimulationTrafficSource
+from .services.traffic_monitor import SimulationTrafficSource, LiveHostTrafficSource, TrafficSource
 from .services.feature_extractor import FeatureExtractor
 from .services.rule_detector import RuleDetector
 from .services.anomaly_detector import MLDetector
 from .services.threat_engine import ThreatEngine
-from .services.firewall_engine import SimulationFirewall
+from .services.firewall_engine import get_firewall_backend, FirewallBackend
 from .services.rule_manager import RuleManager
 from .services.alert_manager import AlertManager
 from .utils.logger import logger
@@ -28,14 +30,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Active Network Enforcement Middleware
+# Rejects incoming HTTP/network connections from any IP that has an active BLOCK rule
+@app.middleware("http")
+async def firewall_enforcement_middleware(request: Request, call_next):
+    forwarded = request.headers.get("x-forwarded-for")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "127.0.0.1")
+    if rule_manager.is_ip_blocked(client_ip):
+        logger.warning(f"[Network Enforcement Layer] Inbound connection rejected for blocked IP: {client_ip}")
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "Forbidden",
+                "message": f"Inbound connection rejected: {client_ip} is currently blocked by Adaptive Firewall.",
+                "action": "CONNECTION_TERMINATED"
+            }
+        )
+    return await call_next(request)
+
+# Initial mode from configuration
+current_mode = settings.firewall_config.get("firewall", {}).get("mode", "simulation")
+
 # Global System Components
-traffic_source = SimulationTrafficSource()
+firewall_backend: FirewallBackend = get_firewall_backend(current_mode)
+rule_manager = RuleManager(firewall_backend)
+
+if current_mode == "live":
+    traffic_source: TrafficSource = LiveHostTrafficSource()
+else:
+    traffic_source: TrafficSource = SimulationTrafficSource()
+
 feature_extractor = FeatureExtractor()
 rule_detector = RuleDetector()
 ml_detector = MLDetector()
 threat_engine = ThreatEngine(rule_detector, ml_detector)
-firewall_backend = SimulationFirewall()
-rule_manager = RuleManager(firewall_backend)
 alert_manager = AlertManager()
 
 # Background Task
@@ -113,7 +141,7 @@ async def processing_loop():
                 threat_info = threat_engine.calculate_threat(features, behavior_score=behavior_score)
                 severity = threat_info["severity"]
 
-                # 4. Adaptive action: create firewall rule for HIGH/CRITICAL
+                # 4. Adaptive action: create firewall rule for HIGH/CRITICAL (enforced at OS & app layer)
                 if severity in ["HIGH", "CRITICAL"]:
                     rule_manager.create_adaptive_rule(src_ip, threat_info)
 
@@ -164,7 +192,7 @@ async def processing_loop():
                 finally:
                     db.close()
 
-            # Periodic Rule Cleanup every 10 iterations
+            # Periodic Rule Cleanup & OS Firewall synchronization every 10 iterations
             if loop_counter % 10 == 0:
                 rule_manager.cleanup_expired_rules()
 
@@ -181,7 +209,6 @@ async def startup_event():
     init_db()
 
     # Auto-train ML model if not already saved
-    import os
     model_path = "data/models/anomaly_model.joblib"
     if not os.path.exists(model_path):
         _train_ml_model()
@@ -192,19 +219,65 @@ async def startup_event():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "mode": settings.firewall_config["firewall"]["mode"]}
+    return {
+        "status": "healthy",
+        "mode": settings.firewall_config.get("firewall", {}).get("mode", "simulation"),
+        "backend": firewall_backend.check_status().get("backend", "unknown")
+    }
 
 
 @app.get("/api/system/status")
 def get_system_status():
-    import os
     model_ready = os.path.exists("data/models/anomaly_model.joblib")
+    fw_status = firewall_backend.check_status()
+    mode = settings.firewall_config.get("firewall", {}).get("mode", "simulation")
     return {
         "status": "healthy",
-        "mode": settings.firewall_config["firewall"]["mode"],
+        "mode": mode,
         "ml_model_ready": model_ready,
         "scenario": traffic_source.scenario,
-        "monitoring": True
+        "monitoring": True,
+        "firewall_status": fw_status
+    }
+
+
+@app.get("/api/firewall/mode")
+def get_firewall_mode():
+    mode = settings.firewall_config.get("firewall", {}).get("mode", "simulation")
+    return {
+        "mode": mode,
+        "firewall_status": firewall_backend.check_status()
+    }
+
+
+@app.post("/api/firewall/mode")
+def set_firewall_mode(data: Dict[str, str]):
+    global firewall_backend, traffic_source
+    target_mode = data.get("mode", "simulation").lower()
+    if target_mode not in ["simulation", "live"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'simulation' or 'live'")
+
+    # Switch firewall backend
+    firewall_backend = get_firewall_backend(target_mode)
+    rule_manager.set_firewall_backend(firewall_backend)
+
+    # Switch traffic monitor source if requested
+    use_live_traffic = data.get("use_live_traffic", True)
+    if target_mode == "live" and use_live_traffic:
+        traffic_source = LiveHostTrafficSource()
+    elif target_mode == "simulation":
+        traffic_source = SimulationTrafficSource()
+
+    # Update config in settings
+    if "firewall" not in settings.firewall_config:
+        settings.firewall_config["firewall"] = {}
+    settings.firewall_config["firewall"]["mode"] = target_mode
+
+    logger.info(f"Switched firewall mode to: {target_mode} ({firewall_backend.__class__.__name__})")
+    return {
+        "status": "success",
+        "mode": target_mode,
+        "firewall_status": firewall_backend.check_status()
     }
 
 
@@ -258,14 +331,17 @@ def get_sim_status():
 
 @app.post("/api/simulation/scenario")
 def set_sim_scenario(data: Dict[str, str]):
+    global traffic_source
     scenario = data.get("scenario", "NORMAL")
+    if not isinstance(traffic_source, SimulationTrafficSource):
+        traffic_source = SimulationTrafficSource()
     traffic_source.set_scenario(scenario)
     return {"status": "success", "scenario": scenario}
 
 
 @app.post("/api/firewall/reset")
 def reset_firewall(db: Session = Depends(get_db)):
-    firewall_backend.clear_rules()
+    rule_manager.clear_all()
     db.query(TrafficEvent).delete()
     db.query(Threat).delete()
     db.query(FirewallRule).delete()

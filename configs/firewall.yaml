@@ -1,5 +1,8 @@
 firewall:
-  mode: simulation # options: simulation, live
+  mode: live # options: live (actual OS & network enforcement), simulation (sandbox testing)
+  enforcement:
+    kernel_firewall: true # Windows Defender Firewall (netsh) / Linux iptables / macOS pfctl
+    app_middleware: true # Reject blocked IPs at application transport layer
 
 thresholds:
   port_scan_ports: 5

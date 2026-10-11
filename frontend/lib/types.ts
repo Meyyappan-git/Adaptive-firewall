@@ -34,6 +34,8 @@ export interface FirewallRule {
   created_at: string;
   expires_at: string | null;
   status: string;
+  severity?: string;
+  enforced_at_os?: boolean;
 }
 
 export interface Alert {
@@ -58,7 +60,22 @@ export interface SimulationStatus {
   scenario: string;
 }
 
+export interface FirewallStatus {
+  backend: string;
+  platform: string;
+  is_elevated: boolean;
+  os_enforcement_supported: boolean;
+  os_enforcement_active: boolean;
+  active_rules_count: number;
+  last_error?: string | null;
+  message: string;
+}
+
 export interface SystemStatus {
   status: string;
   mode: string;
+  ml_model_ready?: boolean;
+  scenario?: string;
+  monitoring?: boolean;
+  firewall_status?: FirewallStatus;
 }
