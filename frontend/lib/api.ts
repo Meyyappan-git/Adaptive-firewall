@@ -11,82 +11,81 @@ import {
 
 const API_BASE = 'http://localhost:8000/api';
 
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}: ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (data?.message) msg = data.message;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export const api = {
   async getHealth(): Promise<SystemStatus> {
-    const res = await fetch(`${API_BASE}/health`);
-    return res.json();
+    return fetchJson<SystemStatus>(`${API_BASE}/health`);
   },
 
   async getSystemStatus(): Promise<SystemStatus> {
-    const res = await fetch(`${API_BASE}/system/status`);
-    return res.json();
+    return fetchJson<SystemStatus>(`${API_BASE}/system/status`);
   },
 
   async getDashboardSummary(): Promise<DashboardSummary> {
-    const res = await fetch(`${API_BASE}/dashboard/summary`);
-    return res.json();
+    return fetchJson<DashboardSummary>(`${API_BASE}/dashboard/summary`);
   },
 
   async getRecentTraffic(): Promise<TrafficEvent[]> {
-    const res = await fetch(`${API_BASE}/traffic/recent`);
-    return res.json();
+    return fetchJson<TrafficEvent[]>(`${API_BASE}/traffic/recent`);
   },
 
   async getThreats(): Promise<Threat[]> {
-    const res = await fetch(`${API_BASE}/threats`);
-    return res.json();
+    return fetchJson<Threat[]>(`${API_BASE}/threats`);
   },
 
   async getRules(): Promise<FirewallRule[]> {
-    const res = await fetch(`${API_BASE}/rules`);
-    return res.json();
+    return fetchJson<FirewallRule[]>(`${API_BASE}/rules`);
   },
 
   async deleteRule(id: number): Promise<{ status: string }> {
-    const res = await fetch(`${API_BASE}/rules/${id}`, { method: 'DELETE' });
-    return res.json();
+    return fetchJson<{ status: string }>(`${API_BASE}/rules/${id}`, { method: 'DELETE' });
   },
 
   async getAlerts(): Promise<Alert[]> {
-    const res = await fetch(`${API_BASE}/alerts`);
-    return res.json();
+    return fetchJson<Alert[]>(`${API_BASE}/alerts`);
   },
 
   async acknowledgeAlert(id: number): Promise<{ status: string }> {
-    const res = await fetch(`${API_BASE}/alerts/${id}/acknowledge`, { method: 'POST' });
-    return res.json();
+    return fetchJson<{ status: string }>(`${API_BASE}/alerts/${id}/acknowledge`, { method: 'POST' });
   },
 
   async getSimulationStatus(): Promise<SimulationStatus> {
-    const res = await fetch(`${API_BASE}/simulation/status`);
-    return res.json();
+    return fetchJson<SimulationStatus>(`${API_BASE}/simulation/status`);
   },
 
   async setSimulationScenario(scenario: string): Promise<{ status: string; scenario: string }> {
-    const res = await fetch(`${API_BASE}/simulation/scenario`, {
+    return fetchJson<{ status: string; scenario: string }>(`${API_BASE}/simulation/scenario`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scenario }),
     });
-    return res.json();
   },
 
   async getFirewallMode(): Promise<{ mode: string; firewall_status: FirewallStatus }> {
-    const res = await fetch(`${API_BASE}/firewall/mode`);
-    return res.json();
+    return fetchJson<{ mode: string; firewall_status: FirewallStatus }>(`${API_BASE}/firewall/mode`);
   },
 
   async setFirewallMode(mode: 'live' | 'simulation'): Promise<{ status: string; mode: string; firewall_status: FirewallStatus }> {
-    const res = await fetch(`${API_BASE}/firewall/mode`, {
+    return fetchJson<{ status: string; mode: string; firewall_status: FirewallStatus }>(`${API_BASE}/firewall/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
     });
-    return res.json();
   },
 
   async resetFirewall(): Promise<{ status: string }> {
-    const res = await fetch(`${API_BASE}/firewall/reset`, { method: 'POST' });
-    return res.json();
+    return fetchJson<{ status: string }>(`${API_BASE}/firewall/reset`, { method: 'POST' });
   },
 };

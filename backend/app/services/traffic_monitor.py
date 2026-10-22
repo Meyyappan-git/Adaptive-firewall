@@ -155,11 +155,16 @@ class LiveHostTrafficSource(TrafficSource):
         if now - self._last_conn_refresh > 1.0 or not self._cached_conns:
             try:
                 conns = psutil.net_connections(kind='inet')
-                # Filter out pure listening sockets and sockets with no remote address
-                active = [c for c in conns if c.raddr]
-                if not active:
-                    # If idle, keep listening sockets so we monitor incoming connection attempts
-                    active = conns
+                # Prioritize actual external/remote network connections over pure internal loopback
+                remote_conns = [
+                    c for c in conns
+                    if c.raddr and c.raddr.ip not in ("127.0.0.1", "::1", "0.0.0.0")
+                ]
+                if remote_conns:
+                    active = remote_conns
+                else:
+                    # Fallback to general sockets if no external connections active
+                    active = [c for c in conns if c.raddr] or conns
                 self._cached_conns = active
                 self._conn_index = 0
                 self._last_conn_refresh = now

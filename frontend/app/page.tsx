@@ -76,7 +76,7 @@ export default function Dashboard() {
       }
       setIsOnline(true);
     } catch (e) {
-      console.error("API Error:", e);
+      console.warn("Backend API polling / reconnecting:", e);
       setIsOnline(false);
     } finally {
       setIsLoading(false);

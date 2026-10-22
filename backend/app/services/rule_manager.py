@@ -4,6 +4,8 @@ from ..utils.logger import logger
 from ..database import FirewallRule, Alert, SessionLocal
 from ..config import settings
 
+WHITELISTED_IPS = {"127.0.0.1", "::1", "localhost", "0.0.0.0", "localhost.localdomain"}
+
 
 class RuleManager:
     def __init__(self, firewall_backend):
@@ -29,7 +31,9 @@ class RuleManager:
             ).all()
             self._blocked_ips_cache = {
                 r.source for r in active_rules
-                if r.action in ["BLOCK", "TEMPORARY_BLOCK"] and (r.expires_at is None or r.expires_at > now)
+                if r.source not in WHITELISTED_IPS and not r.source.startswith("127.")
+                and r.action in ["BLOCK", "TEMPORARY_BLOCK"]
+                and (r.expires_at is None or r.expires_at > now)
             }
         except Exception as e:
             logger.error(f"Error syncing active firewall cache: {e}")
@@ -65,9 +69,15 @@ class RuleManager:
 
     def is_ip_blocked(self, source_ip: str) -> bool:
         """Fast O(1) check if an IP is currently blocked (for middleware)."""
+        if not source_ip or source_ip in WHITELISTED_IPS or source_ip.startswith("127."):
+            return False
         return source_ip in self._blocked_ips_cache
 
     def create_adaptive_rule(self, source_ip: str, threat_info: Dict[str, Any]):
+        if not source_ip or source_ip in WHITELISTED_IPS or source_ip.startswith("127."):
+            logger.debug(f"Skipping adaptive rule creation for whitelisted IP: {source_ip}")
+            return None
+
         score = threat_info["score"]
         severity = threat_info["severity"]
         reasons = ", ".join(threat_info["reasons"])

@@ -105,6 +105,11 @@ class WindowsFirewall(FirewallBackend):
         source_ip = rule.get("source")
         action = rule.get("action", "BLOCK").upper()
 
+        if not source_ip or source_ip in ["127.0.0.1", "::1", "localhost", "0.0.0.0"] or source_ip.startswith("127."):
+            logger.debug(f"[Windows Defender Firewall] Skipping OS rule for loopback/whitelisted IP: {source_ip}")
+            self.rules[rule_id] = rule
+            return rule_id
+
         rule_name = self._rule_name_for_ip(source_ip)
         rule["os_rule_name"] = rule_name
         rule["enforced_at_os"] = False

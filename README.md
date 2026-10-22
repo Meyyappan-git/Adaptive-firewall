@@ -81,6 +81,11 @@ graph TD
     K --> B
 ```
 
+## 👥 Team & Contributions
+
+For details on team member roles and individual contributions, see [CONTRIBUTION.md](CONTRIBUTION.md).
+
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+

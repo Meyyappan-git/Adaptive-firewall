@@ -34,11 +34,20 @@ app.add_middleware(
 # Rejects incoming HTTP/network connections from any IP that has an active BLOCK rule
 @app.middleware("http")
 async def firewall_enforcement_middleware(request: Request, call_next):
+    # Allow CORS preflight requests without restrictions
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     forwarded = request.headers.get("x-forwarded-for")
     client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "127.0.0.1")
+
+    # Never block localhost, loopback, or local administration addresses
+    if client_ip in ["127.0.0.1", "::1", "localhost", "testclient"] or client_ip.startswith("127."):
+        return await call_next(request)
+
     if rule_manager.is_ip_blocked(client_ip):
         logger.warning(f"[Network Enforcement Layer] Inbound connection rejected for blocked IP: {client_ip}")
-        return JSONResponse(
+        response = JSONResponse(
             status_code=403,
             content={
                 "error": "Forbidden",
@@ -46,6 +55,10 @@ async def firewall_enforcement_middleware(request: Request, call_next):
                 "action": "CONNECTION_TERMINATED"
             }
         )
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
     return await call_next(request)
 
 # Initial mode from configuration
@@ -130,30 +143,36 @@ async def processing_loop():
             if packet:
                 src_ip = packet["source_ip"]
 
-                # 1. Extract features
-                feature_extractor.update(packet)
-                features = feature_extractor.extract_features(src_ip)
+                # Never treat localhost/loopback internal IPC as malicious traffic
+                is_loopback = src_ip in ["127.0.0.1", "::1", "localhost", "0.0.0.0"] or src_ip.startswith("127.")
+                if is_loopback:
+                    threat_info = {"score": 0.0, "severity": "LOW", "reasons": []}
+                    severity = "LOW"
+                else:
+                    # 1. Extract features
+                    feature_extractor.update(packet)
+                    features = feature_extractor.extract_features(src_ip)
 
-                # 2. Get behavior score from threat history
-                behavior_score = _get_behavior_score(src_ip)
+                    # 2. Get behavior score from threat history
+                    behavior_score = _get_behavior_score(src_ip)
 
-                # 3. Calculate Threat
-                threat_info = threat_engine.calculate_threat(features, behavior_score=behavior_score)
-                severity = threat_info["severity"]
+                    # 3. Calculate Threat
+                    threat_info = threat_engine.calculate_threat(features, behavior_score=behavior_score)
+                    severity = threat_info["severity"]
 
-                # 4. Adaptive action: create firewall rule for HIGH/CRITICAL (enforced at OS & app layer)
-                if severity in ["HIGH", "CRITICAL"]:
-                    rule_manager.create_adaptive_rule(src_ip, threat_info)
+                    # 4. Adaptive action: create firewall rule for HIGH/CRITICAL (enforced at OS & app layer)
+                    if severity in ["HIGH", "CRITICAL"]:
+                        rule_manager.create_adaptive_rule(src_ip, threat_info)
 
-                # 5. Create alert for MODERATE/HIGH/CRITICAL (dedup in AlertManager)
-                if severity in ["MODERATE", "HIGH", "CRITICAL"]:
-                    alert_manager.create_alert(
-                        severity=severity,
-                        title=f"Suspicious Activity Detected: {severity}",
-                        description=f"Reasons: {', '.join(threat_info['reasons'])}",
-                        source=src_ip,
-                        score=threat_info["score"]
-                    )
+                    # 5. Create alert for MODERATE/HIGH/CRITICAL (dedup in AlertManager)
+                    if severity in ["MODERATE", "HIGH", "CRITICAL"]:
+                        alert_manager.create_alert(
+                            severity=severity,
+                            title=f"Suspicious Activity Detected: {severity}",
+                            description=f"Reasons: {', '.join(threat_info['reasons'])}",
+                            source=src_ip,
+                            score=threat_info["score"]
+                        )
 
                 # 6. Log traffic to DB
                 db = SessionLocal()
